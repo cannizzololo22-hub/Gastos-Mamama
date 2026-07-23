@@ -54,12 +54,27 @@
         </div>
       </div>
 
+      <div class="stats-grid stats-grid--secondary">
+        <div class="stat-card stat-card--income">
+          <div class="stat-card__label">Ingresos (mes)</div>
+          <div class="stat-card__value" id="statIngresos">$0</div>
+        </div>
+        <div class="stat-card stat-card--balance" id="statBalanceCard">
+          <div class="stat-card__label">Balance (mes)</div>
+          <div class="stat-card__value" id="statBalance">$0</div>
+        </div>
+      </div>
+
       <div class="card chart-card" style="margin-top:14px;">
         <div class="chart-card__head">
-          <div class="chart-card__title">Gastos por día</div>
+          <div class="chart-card__title">Gastos e ingresos por día</div>
           <div class="chart-card__meta">Últimos 14 días</div>
         </div>
         <div id="lineChartWrap"><canvas id="lineChart" height="150"></canvas></div>
+        <div class="legend" id="lineLegend">
+          <div class="legend__item"><span class="legend__dot" style="background:#21574A;"></span>Gastos</div>
+          <div class="legend__item"><span class="legend__dot" style="background:#2E7D32;"></span>Ingresos</div>
+        </div>
       </div>
 
       <div class="card chart-card" style="margin-top:14px;">
@@ -81,9 +96,9 @@
     <!-- ================= CHAT ================= -->
     <section class="view view--chat" id="view-chat">
       <div class="chat-stream" id="chatStream"></div>
-      <div class="chat-hint">Ej: "Comida 5000" · "Luz 12000" · "Nafta 8k"</div>
+      <div class="chat-hint">Gastos: "Comida 5000" · "Luz 12000" — Ingresos: "+50000 sueldo"</div>
       <div class="chat-inputbar">
-        <textarea id="chatInput" rows="1" placeholder="Escribe un gasto..." autocomplete="off"></textarea>
+        <textarea id="chatInput" rows="1" placeholder="Escribe un gasto o ingreso..." autocomplete="off"></textarea>
         <button class="send-btn" id="chatSendBtn" aria-label="Enviar">➤</button>
       </div>
     </section>
@@ -114,7 +129,14 @@
   <!-- ================= MODAL: editar gasto ================= -->
   <div class="modal-overlay" id="expenseModal">
     <div class="modal-sheet">
-      <div class="modal-title">Editar gasto</div>
+      <div class="modal-title" id="expModalTitle">Editar movimiento</div>
+      <div class="field">
+        <label>Tipo</label>
+        <div class="type-toggle" id="expTypeToggle">
+          <button type="button" class="type-toggle__btn is-active" data-type="expense">➖ Gasto</button>
+          <button type="button" class="type-toggle__btn" data-type="income">➕ Ingreso</button>
+        </div>
+      </div>
       <div class="field">
         <label for="expCategory">Categoría</label>
         <select id="expCategory"></select>
