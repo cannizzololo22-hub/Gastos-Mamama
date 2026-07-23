@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Mis Gastos</title>
+<meta name="description" content="Controla tus gastos personales escribiendo como si chatearas.">
+<meta name="theme-color" content="#21574A">
+
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mis Gastos">
+
+<link rel="stylesheet" href="./css/styles.css">
+</head>
+<body>
+<div class="app-shell">
+
+  <header class="app-header">
+    <div class="app-header__row">
+      <div>
+        <div class="app-header__title">Mis Gastos<span class="accent-dot">.</span></div>
+        <div class="app-header__subtitle" id="headerSubtitle">Hola 👋 así va tu mes</div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ================= INICIO ================= -->
+    <section class="view is-active" id="view-inicio">
+
+      <div class="install-banner" id="installBanner">
+        <div class="install-banner__icon">📲</div>
+        <div class="install-banner__text">Instala la app en tu celular para abrirla como cualquier otra, incluso sin internet.</div>
+        <button class="install-banner__btn" id="installBtn">Instalar</button>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-card__label">Hoy</div>
+          <div class="stat-card__value" id="statHoy">$0</div>
+        </div>
+        <div class="stat-card stat-card--highlight">
+          <div class="stat-card__label">Este mes</div>
+          <div class="stat-card__value" id="statMes">$0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card__label">Total</div>
+          <div class="stat-card__value" id="statTotal">$0</div>
+        </div>
+      </div>
+
+      <div class="card chart-card" style="margin-top:14px;">
+        <div class="chart-card__head">
+          <div class="chart-card__title">Gastos por día</div>
+          <div class="chart-card__meta">Últimos 14 días</div>
+        </div>
+        <div id="lineChartWrap"><canvas id="lineChart" height="150"></canvas></div>
+      </div>
+
+      <div class="card chart-card" style="margin-top:14px;">
+        <div class="chart-card__head">
+          <div class="chart-card__title">Por categoría</div>
+          <div class="chart-card__meta">Este mes</div>
+        </div>
+        <div id="pieChartWrap"><canvas id="pieChart" height="190"></canvas></div>
+        <div class="legend" id="pieLegend"></div>
+      </div>
+
+      <div class="section-title">Historial</div>
+      <div class="card" id="historyCard">
+        <div id="historyList"></div>
+      </div>
+
+    </section>
+
+    <!-- ================= CHAT ================= -->
+    <section class="view view--chat" id="view-chat">
+      <div class="chat-stream" id="chatStream"></div>
+      <div class="chat-hint">Ej: "Comida 5000" · "Luz 12000" · "Nafta 8k"</div>
+      <div class="chat-inputbar">
+        <textarea id="chatInput" rows="1" placeholder="Escribe un gasto..." autocomplete="off"></textarea>
+        <button class="send-btn" id="chatSendBtn" aria-label="Enviar">➤</button>
+      </div>
+    </section>
+
+    <!-- ================= DEUDAS ================= -->
+    <section class="view" id="view-deudas">
+      <div class="section-title" style="margin-top:2px;">Deudas</div>
+      <div id="debtsList"></div>
+      <div style="height:70px;"></div>
+    </section>
+
+  </main>
+
+  <button class="fab" id="fabAddDebt" aria-label="Agregar deuda">+</button>
+
+  <nav class="bottom-nav">
+    <button class="nav-btn is-active" data-view="inicio">
+      <span class="nav-btn__icon">🏠</span><span>Inicio</span>
+    </button>
+    <button class="nav-btn" data-view="chat">
+      <span class="nav-btn__icon">💬</span><span>Chat</span>
+    </button>
+    <button class="nav-btn" data-view="deudas">
+      <span class="nav-btn__icon">📋</span><span>Deudas</span>
+    </button>
+  </nav>
+
+  <!-- ================= MODAL: editar gasto ================= -->
+  <div class="modal-overlay" id="expenseModal">
+    <div class="modal-sheet">
+      <div class="modal-title">Editar gasto</div>
+      <div class="field">
+        <label for="expCategory">Categoría</label>
+        <select id="expCategory"></select>
+      </div>
+      <div class="field">
+        <label for="expAmount">Monto</label>
+        <input type="number" id="expAmount" inputmode="decimal" placeholder="0">
+      </div>
+      <div class="field">
+        <label for="expDate">Fecha</label>
+        <input type="date" id="expDate">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn--ghost" id="expCancelBtn">Cancelar</button>
+        <button class="btn btn--danger" id="expDeleteBtn">Eliminar</button>
+        <button class="btn btn--primary" id="expSaveBtn">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL: deuda ================= -->
+  <div class="modal-overlay" id="debtModal">
+    <div class="modal-sheet">
+      <div class="modal-title" id="debtModalTitle">Nueva deuda</div>
+      <div class="field">
+        <label for="debtName">¿A quién / qué le debo?</label>
+        <input type="text" id="debtName" placeholder="Ej: Tarjeta Visa">
+      </div>
+      <div class="field">
+        <label for="debtTotal">Monto total</label>
+        <input type="number" id="debtTotal" inputmode="decimal" placeholder="0">
+      </div>
+      <div class="field">
+        <label for="debtPaid">Ya pagado (opcional)</label>
+        <input type="number" id="debtPaid" inputmode="decimal" placeholder="0">
+      </div>
+      <div class="field">
+        <label for="debtDue">Vencimiento (opcional)</label>
+        <input type="date" id="debtDue">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn--ghost" id="debtCancelBtn">Cancelar</button>
+        <button class="btn btn--danger hidden" id="debtDeleteBtn">Eliminar</button>
+        <button class="btn btn--primary" id="debtSaveBtn">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+</div>
+
+<script src="./js/app.js"></script>
+</body>
+</html>
