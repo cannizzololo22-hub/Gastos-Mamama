@@ -12,7 +12,7 @@
 
   const STORAGE_KEY = "misGastosApp:v1";
 
-  const CATEGORIES = [
+  const EXPENSE_CATEGORIES = [
     { key: "comida",         label: "Comida",         icon: "🍽️", color: "#E8A33D",
       keywords: ["comida","comer","almuerzo","cena","desayuno","super","supermercado","mercado","restaurante","delivery","rappi","pedidosya","verduleria","carniceria","panaderia","kiosco","kiosko","snack","fiambreria","dietetica","comestibles"] },
     { key: "transporte",     label: "Transporte",     icon: "🚗", color: "#4A7FB5",
@@ -41,8 +41,26 @@
       keywords: [] }
   ];
 
-  function getCategory(key) {
-    return CATEGORIES.find(c => c.key === key) || CATEGORIES[CATEGORIES.length - 1];
+  const INCOME_CATEGORIES = [
+    { key: "sueldo",     label: "Sueldo",     icon: "💼", color: "#2E86AB",
+      keywords: ["sueldo","salario","paga","nomina","quincena"] },
+    { key: "jubilacion", label: "Jubilación", icon: "👵", color: "#588157",
+      keywords: ["jubilacion","pension"] },
+    { key: "venta",      label: "Venta",      icon: "🏷️", color: "#E8A33D",
+      keywords: ["venta","vendi"] },
+    { key: "regalo",     label: "Regalo/Bono", icon: "🎁", color: "#EC7C8C",
+      keywords: ["regalo","aguinaldo","bono","premio"] },
+    { key: "otros_ingresos", label: "Otro ingreso", icon: "💰", color: "#2E7D32",
+      keywords: [] }
+  ];
+
+  function getCategoryList(type) {
+    return type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  }
+
+  function getCategory(key, type) {
+    const list = getCategoryList(type);
+    return list.find(c => c.key === key) || list[list.length - 1];
   }
 
   function uid() {
@@ -138,30 +156,70 @@
     return { amount, matchedText: match[0] };
   }
 
-  function detectCategory(normalizedText) {
-    for (const cat of CATEGORIES) {
+  function detectCategory(normalizedText, type) {
+    const list = getCategoryList(type);
+    for (const cat of list) {
       for (const kw of cat.keywords) {
         const re = new RegExp("\\b" + kw.replace(/\s+/g, "\\s+") + "\\b", "i");
         if (re.test(normalizedText)) return cat.key;
       }
     }
-    return "otros";
+    return type === "income" ? "otros_ingresos" : "otros";
   }
 
-  function parseExpenseInput(text) {
-    const normalized = normalize(text);
+  // Palabras que indican que el movimiento es un ingreso, no un gasto.
+  const INCOME_KEYWORDS = [
+    "ingreso","ingresos","cobre","cobro","gane","deposito","sueldo","salario",
+    "paga","nomina","jubilacion","pension","aguinaldo","venta","vendi",
+    "entrada","recibi","bono","premio","quincena"
+  ];
+
+  function detectType(normalizedText, hasPlusPrefix) {
+    if (hasPlusPrefix) return "income";
+    
+    // Comprobar coincidencias con categorías explícitas de ingresos
+    for (const cat of INCOME_CATEGORIES) {
+      for (const kw of cat.keywords) {
+        const re = new RegExp("\\b" + kw.replace(/\s+/g, "\\s+") + "\\b", "i");
+        if (re.test(normalizedText)) return "income";
+      }
+    }
+
+    // Comprobar palabras clave genéricas de ingreso
+    for (const kw of INCOME_KEYWORDS) {
+      const re = new RegExp("\\b" + kw + "\\b", "i");
+      if (re.test(normalizedText)) return "income";
+    }
+    return "expense";
+  }
+
+  function parseMovementInput(text) {
+    let rawNormalized = normalize(text);
+    const hasPlusPrefix = /^\+/.test(rawNormalized.trim());
+    let normalized = hasPlusPrefix ? rawNormalized.replace(/^\s*\+\s*/, "") : rawNormalized;
+
     const amountInfo = extractAmount(normalized);
     if (!amountInfo) return null;
-    const category = detectCategory(normalized);
-    return { amount: amountInfo.amount, category };
+
+    const type = detectType(normalized, hasPlusPrefix);
+    const category = detectCategory(normalized, type);
+    return { amount: amountInfo.amount, category, type };
   }
 
   /* ---------------------------------------------------------
      3. CRUD GASTOS / DEUDAS
   --------------------------------------------------------- */
 
-  function addExpense({ amount, category, date, note }) {
-    const exp = { id: uid(), amount, category, date: date || todayISO(), note: note || "", createdAt: new Date().toISOString() };
+  function addExpense({ amount, category, date, note, type }) {
+    const exp = {
+      id: uid(),
+      amount,
+      category,
+      type: type === "income" ? "income" : "expense",
+      date: date || todayISO(),
+      note: note || "",
+      createdAt: new Date().toISOString()
+    };
     state.expenses.push(exp);
     saveData();
     return exp;
@@ -244,6 +302,9 @@
   const statHoy = document.getElementById("statHoy");
   const statMes = document.getElementById("statMes");
   const statTotal = document.getElementById("statTotal");
+  const statIngresos = document.getElementById("statIngresos");
+  const statBalance = document.getElementById("statBalance");
+  const statBalanceCard = document.getElementById("statBalanceCard");
   const historyList = document.getElementById("historyList");
   const headerSubtitle = document.getElementById("headerSubtitle");
 
@@ -252,22 +313,34 @@
     return d.getFullYear() + "-" + pad(d.getMonth() + 1);
   }
 
+  function itemType(e) { return e.type === "income" ? "income" : "expense"; }
+
   function renderStats() {
     const today = todayISO();
     const monthKey = currentMonthKey();
 
-    let hoy = 0, mes = 0, total = 0;
+    let hoy = 0, mes = 0, total = 0, ingresosMes = 0;
     for (const e of state.expenses) {
+      if (itemType(e) === "income") {
+        if (e.date.slice(0, 7) === monthKey) ingresosMes += e.amount;
+        continue;
+      }
       total += e.amount;
       if (e.date === today) hoy += e.amount;
       if (e.date.slice(0, 7) === monthKey) mes += e.amount;
     }
+    const balance = ingresosMes - mes;
+
     statHoy.textContent = formatCurrency(hoy);
     statMes.textContent = formatCurrency(mes);
     statTotal.textContent = formatCurrency(total);
+    statIngresos.textContent = formatCurrency(ingresosMes);
+    statBalance.textContent = formatCurrency(balance);
+    statBalanceCard.classList.toggle("is-negative", balance < 0);
+    statBalanceCard.classList.toggle("is-positive", balance >= 0);
 
     if (state.expenses.length === 0) {
-      headerSubtitle.textContent = "Hola 👋 contame tu primer gasto";
+      headerSubtitle.textContent = "Hola 👋 contame tu primer gasto o ingreso";
     } else if (hoy > 0) {
       headerSubtitle.textContent = "Hoy llevás gastado " + formatCurrency(hoy);
     } else {
@@ -282,12 +355,15 @@
     if (recent.length === 0) {
       historyList.innerHTML =
         '<div class="empty-state"><div class="empty-state__emoji">🧾</div>' +
-        '<div class="empty-state__text">Todavía no registraste gastos.<br>Contámelo en el Chat.</div></div>';
+        '<div class="empty-state__text">Todavía no registraste movimientos.<br>Contámelo en el Chat.</div></div>';
       return;
     }
 
     historyList.innerHTML = recent.map(exp => {
-      const cat = getCategory(exp.category);
+      const type = itemType(exp);
+      const isIncome = type === "income";
+      const cat = getCategory(exp.category, type);
+      const sign = isIncome ? "+" : "-";
       return (
         '<div class="expense-row" data-id="' + exp.id + '">' +
           '<div class="expense-row__icon" style="background:' + cat.color + '22;">' + cat.icon + '</div>' +
@@ -295,7 +371,7 @@
             '<div class="expense-row__cat">' + cat.label + '</div>' +
             '<div class="expense-row__date">' + formatDateHuman(exp.date) + '</div>' +
           '</div>' +
-          '<div class="expense-row__amount">' + formatCurrency(exp.amount) + '</div>' +
+          '<div class="expense-row__amount' + (isIncome ? ' expense-row__amount--income' : '') + '">' + sign + formatCurrency(exp.amount) + '</div>' +
           '<div class="expense-row__actions">' +
             '<button class="icon-btn" data-action="edit" aria-label="Editar">✏️</button>' +
             '<button class="icon-btn icon-btn--danger" data-action="delete" aria-label="Eliminar">🗑️</button>' +
@@ -312,10 +388,10 @@
     const id = row.dataset.id;
     if (btn.dataset.action === "edit") openExpenseModal(id);
     if (btn.dataset.action === "delete") {
-      if (confirm("¿Eliminar este gasto?")) {
+      if (confirm("¿Eliminar este movimiento?")) {
         deleteExpense(id);
         renderDashboard();
-        showToast("Gasto eliminado");
+        showToast("Movimiento eliminado");
       }
     }
   });
@@ -345,6 +421,7 @@
 
   function renderLineChart() {
     const wrap = document.getElementById("lineChartWrap");
+    const legendEl = document.getElementById("lineLegend");
     const canvas = document.getElementById("lineChart");
     const DAYS = 14;
     const today = new Date();
@@ -355,12 +432,19 @@
       const iso = d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
       days.push(iso);
     }
-    const totals = days.map(iso => state.expenses.filter(e => e.date === iso).reduce((s, e) => s + e.amount, 0));
+    const expenseTotals = days.map(iso =>
+      state.expenses.filter(e => e.date === iso && itemType(e) === "expense").reduce((s, e) => s + e.amount, 0)
+    );
+    const incomeTotals = days.map(iso =>
+      state.expenses.filter(e => e.date === iso && itemType(e) === "income").reduce((s, e) => s + e.amount, 0)
+    );
 
     if (state.expenses.length === 0) {
-      wrap.innerHTML = '<div class="chart-empty">Cuando registres gastos vas a ver acá la evolución día a día 📈</div>';
+      wrap.innerHTML = '<div class="chart-empty">Cuando registres movimientos vas a ver acá la evolución día a día 📈</div>';
+      legendEl.style.display = "none";
       return;
     }
+    legendEl.style.display = "";
     if (!document.getElementById("lineChart")) {
       wrap.innerHTML = '<canvas id="lineChart" height="150"></canvas>';
     }
@@ -371,12 +455,16 @@
     const padL = 8, padR = 8, padT = 14, padB = 22;
     const chartW = width - padL - padR;
     const chartH = height - padT - padB;
-    const maxVal = Math.max(...totals, 1);
+    const maxVal = Math.max(...expenseTotals, ...incomeTotals, 1);
 
-    const points = totals.map((v, i) => ({
-      x: padL + (chartW * i) / (DAYS - 1),
-      y: padT + chartH - (v / maxVal) * chartH
-    }));
+    function toPoints(totals) {
+      return totals.map((v, i) => ({
+        x: padL + (chartW * i) / (DAYS - 1),
+        y: padT + chartH - (v / maxVal) * chartH
+      }));
+    }
+    const expensePoints = toPoints(expenseTotals);
+    const incomePoints = toPoints(incomeTotals);
 
     // línea de base
     ctx.strokeStyle = "#E7E2D6";
@@ -386,32 +474,44 @@
     ctx.lineTo(padL + chartW, padT + chartH);
     ctx.stroke();
 
-    // área bajo la curva
+    // área bajo la curva de gastos
     const grad = ctx.createLinearGradient(0, padT, 0, padT + chartH);
-    grad.addColorStop(0, "rgba(33,87,74,0.28)");
+    grad.addColorStop(0, "rgba(33,87,74,0.26)");
     grad.addColorStop(1, "rgba(33,87,74,0.02)");
     ctx.beginPath();
-    ctx.moveTo(points[0].x, padT + chartH);
-    points.forEach(p => ctx.lineTo(p.x, p.y));
-    ctx.lineTo(points[points.length - 1].x, padT + chartH);
+    ctx.moveTo(expensePoints[0].x, padT + chartH);
+    expensePoints.forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.lineTo(expensePoints[expensePoints.length - 1].x, padT + chartH);
     ctx.closePath();
     ctx.fillStyle = grad;
     ctx.fill();
 
-    // línea
-    ctx.beginPath();
-    points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-    ctx.strokeStyle = "#21574A";
-    ctx.lineWidth = 2.2;
-    ctx.lineJoin = "round";
-    ctx.stroke();
+    function drawLine(points, color, width) {
+      ctx.beginPath();
+      points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.lineJoin = "round";
+      ctx.stroke();
+    }
+    drawLine(expensePoints, "#21574A", 2.2);
+    if (incomeTotals.some(v => v > 0)) drawLine(incomePoints, "#2E7D32", 2);
 
-    // puntos (sólo si > 0 o es el último día)
-    points.forEach((p, i) => {
-      if (totals[i] > 0 || i === points.length - 1) {
+    // puntos de gastos
+    expensePoints.forEach((p, i) => {
+      if (expenseTotals[i] > 0 || i === expensePoints.length - 1) {
         ctx.beginPath();
-        ctx.arc(p.x, p.y, i === points.length - 1 ? 3.6 : 2.6, 0, Math.PI * 2);
-        ctx.fillStyle = totals[i] > 0 ? "#E8A33D" : "#21574A";
+        ctx.arc(p.x, p.y, i === expensePoints.length - 1 ? 3.6 : 2.6, 0, Math.PI * 2);
+        ctx.fillStyle = expenseTotals[i] > 0 ? "#E8A33D" : "#21574A";
+        ctx.fill();
+      }
+    });
+    // puntos de ingresos
+    incomePoints.forEach((p, i) => {
+      if (incomeTotals[i] > 0) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2.6, 0, Math.PI * 2);
+        ctx.fillStyle = "#2E7D32";
         ctx.fill();
       }
     });
@@ -424,7 +524,7 @@
     days.forEach((iso, i) => {
       if (i % 3 === 0 || i === days.length - 1) {
         const [, m, d] = iso.split("-");
-        ctx.fillText(parseInt(d, 10) + " " + months[parseInt(m, 10) - 1], points[i].x, height - 4);
+        ctx.fillText(parseInt(d, 10) + " " + months[parseInt(m, 10) - 1], expensePoints[i].x, height - 4);
       }
     });
   }
@@ -437,7 +537,7 @@
     const wrap = document.getElementById("pieChartWrap");
     const legend = document.getElementById("pieLegend");
     const monthKey = currentMonthKey();
-    const monthExpenses = state.expenses.filter(e => e.date.slice(0, 7) === monthKey);
+    const monthExpenses = state.expenses.filter(e => e.date.slice(0, 7) === monthKey && itemType(e) === "expense");
 
     if (monthExpenses.length === 0) {
       wrap.innerHTML = '<div class="chart-empty">Todavía no hay gastos este mes para graficar 🥧</div>';
@@ -453,7 +553,7 @@
       totalsByCategory[e.category] = (totalsByCategory[e.category] || 0) + e.amount;
     });
     const entries = Object.entries(totalsByCategory)
-      .map(([key, value]) => ({ cat: getCategory(key), value }))
+      .map(([key, value]) => ({ cat: getCategory(key, "expense"), value }))
       .sort((a, b) => b.value - a.value);
     const total = entries.reduce((s, e) => s + e.value, 0);
 
@@ -557,7 +657,11 @@
   }
 
   function appendBotReceipt(expense, save) {
-    const cat = getCategory(expense.category);
+    const type = itemType(expense);
+    const isIncome = type === "income";
+    const cat = getCategory(expense.category, type);
+    const sign = isIncome ? "+" : "-";
+    const stampLabel = isIncome ? "✓ Ingreso registrado · " : "✓ Gasto registrado · ";
     const div = document.createElement("div");
     div.className = "chat-msg chat-msg--bot";
     div.innerHTML =
@@ -565,10 +669,10 @@
         '<div class="receipt__row">' +
           '<div class="receipt__icon" style="background:' + cat.color + '22;">' + cat.icon + '</div>' +
           '<div class="receipt__cat">' + cat.label + '</div>' +
-          '<div class="receipt__amount">' + formatCurrency(expense.amount) + '</div>' +
+          '<div class="receipt__amount' + (isIncome ? ' receipt__amount--income' : '') + '">' + sign + formatCurrency(expense.amount) + '</div>' +
         '</div>' +
         '<div class="receipt__foot">' +
-          '<span class="receipt__stamp">✓ Registrado · ' + formatDateHuman(expense.date) + '</span>' +
+          '<span class="receipt__stamp">' + stampLabel + formatDateHuman(expense.date) + '</span>' +
           '<button class="receipt__edit" data-action="edit-receipt" data-id="' + expense.id + '">Editar</button>' +
         '</div>' +
       '</div>';
@@ -588,7 +692,7 @@
     chatStream.innerHTML = "";
 
     if (state.chatLog.length === 0) {
-      appendBotText("¡Hola! 👋 Contame tus gastos como si me escribieras un mensaje. Por ejemplo: \"Comida 5000\" o \"Luz 12000\".", false);
+      appendBotText("¡Hola! 👋 Contame tus gastos como si me escribieras un mensaje. Por ejemplo: \"Comida 5000\" o \"Luz 12000\". Para un ingreso, escribí \"+50000 sueldo\".", false);
       return;
     }
     state.chatLog.forEach(entry => {
@@ -608,13 +712,13 @@
     chatInput.value = "";
     autoresizeTextarea();
 
-    const parsed = parseExpenseInput(text);
+    const parsed = parseMovementInput(text);
     if (!parsed) {
-      appendBotText('No encontré un monto ahí 🤔 Probá escribiendo, por ejemplo: "Comida 5000".', true);
+      appendBotText('No encontré un monto ahí 🤔 Probá con "Comida 5000" (gasto) o "+50000 sueldo" (ingreso).', true);
       scrollChatToBottom();
       return;
     }
-    const exp = addExpense({ amount: parsed.amount, category: parsed.category, date: todayISO(), note: text });
+    const exp = addExpense({ amount: parsed.amount, category: parsed.category, type: parsed.type, date: todayISO(), note: text });
     appendBotReceipt(exp, true);
     scrollChatToBottom();
   }
@@ -638,6 +742,8 @@
   --------------------------------------------------------- */
 
   const expenseModal = document.getElementById("expenseModal");
+  const expModalTitle = document.getElementById("expModalTitle");
+  const expTypeToggle = document.getElementById("expTypeToggle");
   const expCategory = document.getElementById("expCategory");
   const expAmount = document.getElementById("expAmount");
   const expDate = document.getElementById("expDate");
@@ -645,15 +751,37 @@
   const expDeleteBtn = document.getElementById("expDeleteBtn");
   const expCancelBtn = document.getElementById("expCancelBtn");
 
-  expCategory.innerHTML = CATEGORIES.map(c => '<option value="' + c.key + '">' + c.icon + ' ' + c.label + '</option>').join("");
-
   let editingExpenseId = null;
+  let currentModalType = "expense";
+
+  function populateExpCategorySelect(type, selectedKey) {
+    const list = getCategoryList(type);
+    expCategory.innerHTML = list.map(c => '<option value="' + c.key + '">' + c.icon + ' ' + c.label + '</option>').join("");
+    if (selectedKey && list.some(c => c.key === selectedKey)) expCategory.value = selectedKey;
+  }
+
+  function setModalType(type, selectedCategoryKey) {
+    currentModalType = type;
+    expTypeToggle.querySelectorAll(".type-toggle__btn").forEach(btn => {
+      btn.classList.toggle("is-active", btn.dataset.type === type);
+    });
+    populateExpCategorySelect(type, selectedCategoryKey);
+    expModalTitle.textContent = type === "income" ? "Editar ingreso" : "Editar gasto";
+  }
+
+  expTypeToggle.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".type-toggle__btn");
+    if (!btn) return;
+    setModalType(btn.dataset.type, null);
+  });
+
+  populateExpCategorySelect("expense");
 
   function openExpenseModal(id) {
     const exp = state.expenses.find(e => e.id === id);
     if (!exp) return;
     editingExpenseId = id;
-    expCategory.value = exp.category;
+    setModalType(itemType(exp), exp.category);
     expAmount.value = exp.amount;
     expDate.value = exp.date;
     openModal(expenseModal);
@@ -665,20 +793,25 @@
       showToast("Ingresá un monto válido");
       return;
     }
-    updateExpense(editingExpenseId, { category: expCategory.value, amount, date: expDate.value || todayISO() });
+    updateExpense(editingExpenseId, {
+      category: expCategory.value,
+      amount,
+      type: currentModalType,
+      date: expDate.value || todayISO()
+    });
     closeModal(expenseModal);
     refreshReceiptInChat(editingExpenseId);
     renderDashboard();
-    showToast("Gasto actualizado");
+    showToast(currentModalType === "income" ? "Ingreso actualizado" : "Gasto actualizado");
   });
 
   expDeleteBtn.addEventListener("click", () => {
-    if (!confirm("¿Eliminar este gasto?")) return;
+    if (!confirm("¿Eliminar este movimiento?")) return;
     deleteExpense(editingExpenseId);
     removeReceiptFromChat(editingExpenseId);
     closeModal(expenseModal);
     renderDashboard();
-    showToast("Gasto eliminado");
+    showToast("Eliminado");
   });
 
   expCancelBtn.addEventListener("click", () => closeModal(expenseModal));
@@ -688,12 +821,18 @@
     if (!exp) return;
     const el = chatStream.querySelector('.receipt[data-id="' + id + '"]');
     if (!el) return;
-    const cat = getCategory(exp.category);
+    const type = itemType(exp);
+    const isIncome = type === "income";
+    const cat = getCategory(exp.category, type);
+    const sign = isIncome ? "+" : "-";
+    const stampLabel = isIncome ? "✓ Ingreso registrado · " : "✓ Gasto registrado · ";
     el.querySelector(".receipt__icon").style.background = cat.color + "22";
     el.querySelector(".receipt__icon").textContent = cat.icon;
     el.querySelector(".receipt__cat").textContent = cat.label;
-    el.querySelector(".receipt__amount").textContent = formatCurrency(exp.amount);
-    el.querySelector(".receipt__stamp").textContent = "✓ Registrado · " + formatDateHuman(exp.date);
+    const amountEl = el.querySelector(".receipt__amount");
+    amountEl.textContent = sign + formatCurrency(exp.amount);
+    amountEl.classList.toggle("receipt__amount--income", isIncome);
+    el.querySelector(".receipt__stamp").textContent = stampLabel + formatDateHuman(exp.date);
   }
 
   function removeReceiptFromChat(id) {
